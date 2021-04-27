@@ -1,0 +1,12 @@
+[package]
+name = "ion-cluster-gst"
+version = "0.1.0"
+authors = ["Billy Lindeman <billylindeman@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+jsonrpc-ws-client = "11.0.0"
+serde = { version = "1.0.125", features = ["derive"] }
+serde_json = "1.0.64"
