@@ -1,5 +1,5 @@
 [package]
-name = "ion-cluster-gst"
+name = "ion-gst-rs"
 version = "0.1.0"
 authors = ["Billy Lindeman <billylindeman@gmail.com>"]
 edition = "2018"
