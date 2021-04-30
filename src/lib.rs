@@ -1,6 +1,18 @@
+use async_trait::async_trait;
+use async_tungstenite::tungstenite;
 use serde::{Deserialize, Serialize};
 
-pub enum Error {}
+pub mod jsonrpc;
+
+pub enum Error {
+    WebsocketError(tungstenite::Error),
+}
+
+impl From<tungstenite::Error> for Error {
+    fn from(i: tungstenite::Error) -> Error {
+        Error::WebsocketError(i)
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct SessionDescription {
@@ -26,12 +38,14 @@ pub enum SignalNotification {
         candidate: TrickleCandidate,
     },
 }
-pub trait Signal {
-    fn open(url: String) -> Result<(), Error>;
-    fn close() -> Result<(), Error>;
-    fn ping() -> Result<(), Error>;
 
-    fn join(sid: String, offer: SessionDescription) -> Result<(), Error>;
+#[async_trait(?Send)]
+pub trait Signal {
+    async fn open(url: String) -> Result<(), Error>;
+    async fn close() -> Result<(), Error>;
+    async fn ping() -> Result<(), Error>;
+
+    async fn join(sid: String, offer: SessionDescription) -> Result<(), Error>;
 }
 
 pub struct Client<S: Signal> {
