@@ -1,10 +1,9 @@
 use glib;
-use ion_cluster_gst::jsonrpc::JsonRPCSignaler;
-use ion_cluster_gst::Signal;
+use ion_gst_rs::jsonrpc::JsonRPCSignaler;
+use ion_gst_rs::Signal;
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let j = JsonRPCSignaler {};
-    JsonRPCSignaler::open("wss://sfu.dogfood.tandem.chat".to_string()).await?;
+    JsonRPCSignaler::open("ws://localhost:7000/session/test".to_string()).await?;
 
     Ok(())
 }

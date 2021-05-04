@@ -11,18 +11,29 @@ impl Signal for JsonRPCSignaler {
     async fn open(url: String) -> Result<(), Error> {
         let (mut stream, _) = connect_async(url).await?;
 
-        let text = "Hello, World!";
 
-        println!("Sending: \"{}\"", text);
-        stream.send(Message::text(text)).await?;
 
-        let msg = stream
-            .next()
-            .await
-            .ok_or("didn't receive anything")
-            .unwrap();
+        let (mut tx, mut rx) = stream.split();
 
-        println!("Received: {:?}", msg);
+        glib::MainContext::default().spawn(async move {
+            println!("rx task spawned");
+
+            while let Ok(msg) = rx.next().await.unwrap() {
+                println!("got message: {}", msg);
+            }
+
+
+        });
+
+
+        loop {
+            let text = r#"{"method":"ping"}"#;
+            println!("Sending: \"{}\"", text);
+            tx.send(Message::text(text)).await?;
+
+            async_std::task::sleep(std::time::Duration::from_secs(1)).await; 
+        }
+
 
         Ok(())
     }

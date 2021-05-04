@@ -7,8 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-std = "1.9.0"
 async-trait = "0.1.50"
 async-tungstenite = { version = "0.13.1", features = ["gio-runtime"]}
+derive_more = "0.99.13"
 futures = "0.3.14"
 glib = "0.10.3"
 jsonrpc-ws-client = "11.0.0"

@@ -1,9 +1,11 @@
 use async_trait::async_trait;
 use async_tungstenite::tungstenite;
 use serde::{Deserialize, Serialize};
+use derive_more::{Display};
 
 pub mod jsonrpc;
 
+#[derive(Debug,Display)]
 pub enum Error {
     WebsocketError(tungstenite::Error),
 }
@@ -13,6 +15,8 @@ impl From<tungstenite::Error> for Error {
         Error::WebsocketError(i)
     }
 }
+
+impl std::error::Error for Error {}
 
 #[derive(Serialize, Deserialize)]
 pub struct SessionDescription {
