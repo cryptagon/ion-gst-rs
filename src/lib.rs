@@ -1,12 +1,11 @@
 use async_trait::async_trait;
 use async_tungstenite::tungstenite;
+use derive_more::Display;
 use serde::{Deserialize, Serialize};
-use derive_more::{Display};
-
 
 pub mod jsonrpc;
 
-#[derive(Debug,Display)]
+#[derive(Debug, Display)]
 pub enum Error {
     WebsocketError(jsonrpsee::ws_client::Error),
 }
@@ -47,11 +46,11 @@ pub enum SignalNotification {
 
 #[async_trait(?Send)]
 pub trait Signal {
-    async fn open(url: String) -> Result<(), Error>;
-    async fn close() -> Result<(), Error>;
-    async fn ping() -> Result<(), Error>;
+    async fn open(&mut self, url: String) -> Result<(), Error>;
+    async fn close(&mut self) -> Result<(), Error>;
+    async fn ping(&self) -> Result<(), Error>;
 
-    async fn join(sid: String, offer: SessionDescription) -> Result<(), Error>;
+    async fn join(&self, sid: String, offer: SessionDescription) -> Result<(), Error>;
 }
 
 pub struct Client<S: Signal> {
