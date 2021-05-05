@@ -13,6 +13,9 @@ async-tungstenite = { version = "0.13.1", features = ["gio-runtime"]}
 derive_more = "0.99.13"
 futures = "0.3.14"
 glib = "0.10.3"
+gst = { package = "gstreamer", version = "0.16", features = ["v1_14"] }
+gst-webrtc = { package = "gstreamer-webrtc", version = "0.16" }
+gst-sdp = { package = "gstreamer-sdp", version = "0.16", features = ["v1_14"] }
 jsonrpsee =  { git = "https://github.com/paritytech/jsonrpsee", features = ["full"] }
 maplit = "1.0.2"
 serde = { version = "1.0.125", features = ["derive"] }

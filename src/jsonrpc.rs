@@ -1,7 +1,5 @@
-use super::{Error, SessionDescription, Signal};
+use super::{Error, SessionDescription, Signal, TrickleCandidate};
 use async_trait::async_trait;
-use async_tungstenite::{gio::connect_async, tungstenite::Message};
-use futures::prelude::*;
 use jsonrpsee::ws_client::{traits::Client, v2::params::JsonRpcParams, WsClient, WsClientBuilder};
 use maplit::btreemap;
 use serde::{Deserialize, Serialize};
@@ -75,8 +73,47 @@ impl Signal for JsonRPCSignaler {
             };
 
             let answer: SessionDescription = ws.request("join", JsonRpcParams::Map(msg)).await?;
-
             return Ok(answer);
+        }
+
+        Err(Error::NotConnected)
+    }
+
+    async fn offer(&self, offer: SessionDescription) -> Result<SessionDescription, Error> {
+        if let Some(ws) = &self.ws {
+            let msg: BTreeMap<&str, Value> = btreemap! {
+                "desc" => serde_json::to_value(offer).unwrap(),
+            };
+
+            let answer: SessionDescription = ws.request("offer", JsonRpcParams::Map(msg)).await?;
+            return Ok(answer);
+        }
+
+        Err(Error::NotConnected)
+    }
+
+    async fn answer(&self, answer: SessionDescription) -> Result<(), Error> {
+        if let Some(ws) = &self.ws {
+            let msg: BTreeMap<&str, Value> = btreemap! {
+                "desc" => serde_json::to_value(answer).unwrap(),
+            };
+
+            ws.notification("answer", JsonRpcParams::Map(msg)).await?;
+            return Ok(());
+        }
+
+        Err(Error::NotConnected)
+    }
+
+    async fn trickle(&self, target: u32, candidate: TrickleCandidate) -> Result<(), Error> {
+        if let Some(ws) = &self.ws {
+            let msg: BTreeMap<&str, Value> = btreemap! {
+                "target" => serde_json::to_value(target).unwrap(),
+                "candidate" => serde_json::to_value(candidate).unwrap(),
+            };
+
+            ws.notification("answer", JsonRpcParams::Map(msg)).await?;
+            return Ok(());
         }
 
         Err(Error::NotConnected)

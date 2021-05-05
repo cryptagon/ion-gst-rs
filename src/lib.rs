@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use async_tungstenite::tungstenite;
 use derive_more::Display;
+use gst::prelude::*;
 use serde::{Deserialize, Serialize};
 
 pub mod jsonrpc;
@@ -56,18 +57,34 @@ pub trait Signal {
         sid: String,
         offer: SessionDescription,
     ) -> Result<SessionDescription, Error>;
+
+    async fn offer(&self, offer: SessionDescription) -> Result<SessionDescription, Error>;
+    async fn answer(&self, answer: SessionDescription) -> Result<(), Error>;
+    async fn trickle(&self, target: u32, candidate: TrickleCandidate) -> Result<(), Error>;
 }
 
 pub struct Client<S: Signal> {
     signal: S,
+
+    publisher: gst::Element,
+    subscriber: gst::Element,
 }
 
 impl<S: Signal> Client<S> {
     fn new(signal: S) -> Client<S> {
-        Client { signal: signal }
+        let publisher =
+            gst::ElementFactory::make("webrtcbin", None).expect("error creating webrtcbin");
+        let subscriber =
+            gst::ElementFactory::make("webrtcbin", None).expect("error creating webrtcbin");
+
+        Client {
+            signal: signal,
+            publisher: publisher,
+            subscriber: subscriber,
+        }
     }
 
-    fn join() -> Result<(), Error> {
+    async fn join(&self, sid: String) -> Result<(), Error> {
         Ok(())
     }
 }
