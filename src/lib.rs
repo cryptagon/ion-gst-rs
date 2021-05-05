@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use async_tungstenite::tungstenite;
 use derive_more::Display;
 use gst::prelude::*;
+use log::*;
 use serde::{Deserialize, Serialize};
 
 pub mod jsonrpc;
@@ -71,11 +72,15 @@ pub struct Client<S: Signal> {
 }
 
 impl<S: Signal> Client<S> {
-    fn new(signal: S) -> Client<S> {
+    fn new(signal: S, pipeline: gst::Pipeline) -> Client<S> {
         let publisher =
             gst::ElementFactory::make("webrtcbin", None).expect("error creating webrtcbin");
         let subscriber =
             gst::ElementFactory::make("webrtcbin", None).expect("error creating webrtcbin");
+
+        pipeline
+            .add_many(&[&publisher, &subscriber])
+            .expect("error adding transports to pipeline");
 
         Client {
             signal: signal,
@@ -85,6 +90,38 @@ impl<S: Signal> Client<S> {
     }
 
     async fn join(&self, sid: String) -> Result<(), Error> {
+        let (promise, fut) = gst::Promise::new_future();
+
+        self.publisher
+            .emit("create-offer", &[&None::<gst::Structure>, &promise])
+            .unwrap();
+
+        let reply = fut.await;
+
+        // Check if we got a valid offer
+        let reply = match reply {
+            Ok(Some(reply)) => reply,
+            Ok(None) => {
+                error!("Offer creation got no reponse");
+            }
+            Err(err) => {
+                error!("Offer creation got error reponse: {:?}", err);
+            }
+        };
+
+        let offer = reply
+            .get_value("offer")
+            .expect("Invalid argument")
+            .get::<gst_webrtc::WebRTCSessionDescription>()
+            .expect("Invalid argument")
+            .unwrap();
+
+        trace!("Created offer {:#?}", offer.get_sdp());
+
+        self.publisher
+            .emit("set-local-description", &[&offer, &None::<gst::Promise>])
+            .expect("Failed to emit set-local-description signal");
+
         Ok(())
     }
 }
