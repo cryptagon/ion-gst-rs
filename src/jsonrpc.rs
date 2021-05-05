@@ -2,35 +2,35 @@ use async_trait::async_trait;
 use async_tungstenite::{gio::connect_async, tungstenite::Message};
 use futures::prelude::*;
 
+use url::{Url};
 use super::{Error, SessionDescription, Signal};
 
-pub struct JsonRPCSignaler {}
+use jsonrpsee::{
+	ws_client::{traits::Client, v2::params::JsonRpcParams, WsClientBuilder},
+	ws_server::WsServer,
+};
+use std::net::SocketAddr;
+
+use std::borrow::Cow;
+pub struct JsonRPCSignaler {
+
+}
 
 #[async_trait(?Send)]
 impl Signal for JsonRPCSignaler {
     async fn open(url: String) -> Result<(), Error> {
-        let (mut stream, _) = connect_async(url).await?;
+
+        let u = Url::parse(&url).unwrap();
 
 
 
-        let (mut tx, mut rx) = stream.split();
-
-        glib::MainContext::default().spawn(async move {
-            println!("rx task spawned");
-
-            while let Ok(msg) = rx.next().await.unwrap() {
-                println!("got message: {}", msg);
-            }
-
-
-        });
+        let client = WsClientBuilder::default().handshake_url(Cow::Borrowed(&u.path())).build(&url).await?;
 
 
         loop {
-            let text = r#"{"method":"ping"}"#;
-            println!("Sending: \"{}\"", text);
-            tx.send(Message::text(text)).await?;
-
+            println!("ping");
+            let response: String = client.request("ping", JsonRpcParams::NoParams).await?;
+            println!("got response: {}", response);
             async_std::task::sleep(std::time::Duration::from_secs(1)).await; 
         }
 

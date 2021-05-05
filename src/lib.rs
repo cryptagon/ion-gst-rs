@@ -3,15 +3,16 @@ use async_tungstenite::tungstenite;
 use serde::{Deserialize, Serialize};
 use derive_more::{Display};
 
+
 pub mod jsonrpc;
 
 #[derive(Debug,Display)]
 pub enum Error {
-    WebsocketError(tungstenite::Error),
+    WebsocketError(jsonrpsee::ws_client::Error),
 }
 
-impl From<tungstenite::Error> for Error {
-    fn from(i: tungstenite::Error) -> Error {
+impl From<jsonrpsee::ws_client::Error> for Error {
+    fn from(i: jsonrpsee::ws_client::Error) -> Error {
         Error::WebsocketError(i)
     }
 }
@@ -20,6 +21,7 @@ impl std::error::Error for Error {}
 
 #[derive(Serialize, Deserialize)]
 pub struct SessionDescription {
+    #[serde(rename = "type")]
     pub t: String,
     pub sdp: String,
 }

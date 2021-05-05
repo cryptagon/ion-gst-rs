@@ -13,9 +13,10 @@ async-tungstenite = { version = "0.13.1", features = ["gio-runtime"]}
 derive_more = "0.99.13"
 futures = "0.3.14"
 glib = "0.10.3"
-jsonrpc-ws-client = "11.0.0"
+jsonrpsee =  { git = "https://github.com/paritytech/jsonrpsee", features = ["full"] }
 serde = { version = "1.0.125", features = ["derive"] }
 serde_json = "1.0.64"
+url = "2.2.1"
 
 
 
