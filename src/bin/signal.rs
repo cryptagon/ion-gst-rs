@@ -8,6 +8,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     rpc.open("ws://localhost:7000/session/test".to_string())
         .await?;
 
+    rpc.join(
+        "test".to_owned(),
+        SessionDescription {
+            t: "offer".to_owned(),
+            sdp: "boop".to_owned(),
+        },
+    )
+    .await?;
+
     loop {
         rpc.ping().await?;
         async_std::task::sleep(std::time::Duration::from_secs(1)).await;

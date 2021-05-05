@@ -3,9 +3,23 @@ use async_trait::async_trait;
 use async_tungstenite::{gio::connect_async, tungstenite::Message};
 use futures::prelude::*;
 use jsonrpsee::ws_client::{traits::Client, v2::params::JsonRpcParams, WsClient, WsClientBuilder};
+use maplit::btreemap;
+use serde::{Deserialize, Serialize};
+use serde_json::value::Value;
 use std::borrow::Cow;
-use std::net::SocketAddr;
+use std::collections::BTreeMap;
 use url::Url;
+
+#[derive(Serialize, Deserialize)]
+pub struct JoinMsg {
+    pub sid: String,
+    pub offer: SessionDescription,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct JoinResponse {
+    pub answer: SessionDescription,
+}
 
 pub struct JsonRPCSignaler {
     ws: Option<WsClient>,
@@ -31,13 +45,6 @@ impl Signal for JsonRPCSignaler {
 
         self.ws = Some(client);
 
-        //        loop {
-        //            println!("ping");
-        //            let response: String = client.request("ping", JsonRpcParams::NoParams).await?;
-        //            println!("got response: {}", response);
-        //            async_std::task::sleep(std::time::Duration::from_secs(1)).await;
-        //        }
-
         Ok(())
     }
 
@@ -50,11 +57,28 @@ impl Signal for JsonRPCSignaler {
 
             let response: String = ws.request("ping", JsonRpcParams::NoParams).await?;
             println!("got response: {}", response);
+
+            return Ok(());
         }
-        Ok(())
+        Err(Error::NotConnected)
     }
 
-    async fn join(&self, sid: String, offer: SessionDescription) -> Result<(), Error> {
-        Ok(())
+    async fn join(
+        &self,
+        sid: String,
+        offer: SessionDescription,
+    ) -> Result<SessionDescription, Error> {
+        if let Some(ws) = &self.ws {
+            let msg: BTreeMap<&str, Value> = btreemap! {
+                "sid" => serde_json::to_value(sid).unwrap(),
+                "offer" => serde_json::to_value(offer).unwrap(),
+            };
+
+            let answer: SessionDescription = ws.request("join", JsonRpcParams::Map(msg)).await?;
+
+            return Ok(answer);
+        }
+
+        Err(Error::NotConnected)
     }
 }

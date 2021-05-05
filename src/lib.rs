@@ -8,6 +8,7 @@ pub mod jsonrpc;
 #[derive(Debug, Display)]
 pub enum Error {
     WebsocketError(jsonrpsee::ws_client::Error),
+    NotConnected,
 }
 
 impl From<jsonrpsee::ws_client::Error> for Error {
@@ -50,7 +51,11 @@ pub trait Signal {
     async fn close(&mut self) -> Result<(), Error>;
     async fn ping(&self) -> Result<(), Error>;
 
-    async fn join(&self, sid: String, offer: SessionDescription) -> Result<(), Error>;
+    async fn join(
+        &self,
+        sid: String,
+        offer: SessionDescription,
+    ) -> Result<SessionDescription, Error>;
 }
 
 pub struct Client<S: Signal> {
