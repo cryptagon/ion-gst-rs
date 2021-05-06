@@ -10,6 +10,7 @@ pub mod jsonrpc;
 #[derive(Debug, Display)]
 pub enum Error {
     WebsocketError(jsonrpsee::ws_client::Error),
+    SDPError,
     NotConnected,
 }
 
@@ -95,7 +96,6 @@ impl<S: Signal> Client<S> {
         self.publisher
             .emit("create-offer", &[&None::<gst::Structure>, &promise])
             .unwrap();
-
         let reply = fut.await;
 
         // Check if we got a valid offer
@@ -108,7 +108,6 @@ impl<S: Signal> Client<S> {
                 error!("Offer creation got error reponse: {:?}", err);
             }
         };
-
         let offer = reply
             .get_value("offer")
             .expect("Invalid argument")
@@ -121,6 +120,23 @@ impl<S: Signal> Client<S> {
         self.publisher
             .emit("set-local-description", &[&offer, &None::<gst::Promise>])
             .expect("Failed to emit set-local-description signal");
+
+        let offer = SessionDescription {
+            t: "offer".to_string(),
+            sdp: offer.get_sdp().as_text().unwrap(),
+        };
+
+        // send join offer to server and await answer
+        let answer = self.signal.join(sid, offer).await?;
+
+        let ret = gst_sdp::SDPMessage::parse_buffer(answer.sdp.as_bytes())
+            .map_err(|_| Error::SDPError)?;
+        let answer =
+            gst_webrtc::WebRTCSessionDescription::new(gst_webrtc::WebRTCSDPType::Answer, ret);
+
+        self.publisher
+            .emit("set-remote-description", &[&answer, &None::<gst::Promise>])
+            .unwrap();
 
         Ok(())
     }
