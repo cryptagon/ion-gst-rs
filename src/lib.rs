@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 pub mod jsonrpc;
 
+const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
+
 #[derive(Debug, Display)]
 pub enum Error {
     WebsocketError(jsonrpsee::ws_client::Error),
@@ -73,15 +75,20 @@ pub struct Client<S: Signal> {
 }
 
 impl<S: Signal> Client<S> {
-    fn new(signal: S, pipeline: gst::Pipeline) -> Client<S> {
-        let publisher =
-            gst::ElementFactory::make("webrtcbin", None).expect("error creating webrtcbin");
+    pub fn new(signal: S, pipeline: gst::Pipeline) -> Client<S> {
+        let publisher = gst::ElementFactory::make("webrtcbin", Some("publisher"))
+            .expect("error creating webrtcbin");
+        publisher.set_property_from_str("stun-server", STUN_SERVER);
+        publisher.set_property_from_str("bundle-policy", "max-bundle");
+
         let subscriber =
             gst::ElementFactory::make("webrtcbin", None).expect("error creating webrtcbin");
 
         pipeline
             .add_many(&[&publisher, &subscriber])
             .expect("error adding transports to pipeline");
+
+        pipeline.set_state(gst::State::Playing).unwrap();
 
         Client {
             signal: signal,
@@ -90,12 +97,19 @@ impl<S: Signal> Client<S> {
         }
     }
 
-    async fn join(&self, sid: String) -> Result<(), Error> {
-        let (promise, fut) = gst::Promise::new_future();
+    pub async fn join(&self, sid: String) -> Result<(), Error> {
+        self.publisher
+            .emit(
+                "create-data-channel",
+                &[&"ion-sfu", &None::<gst::Structure>],
+            )
+            .unwrap();
 
+        let (promise, fut) = gst::Promise::new_future();
         self.publisher
             .emit("create-offer", &[&None::<gst::Structure>, &promise])
-            .unwrap();
+            .expect("Failed to emit create-offer signal");
+
         let reply = fut.await;
 
         // Check if we got a valid offer
@@ -103,11 +117,16 @@ impl<S: Signal> Client<S> {
             Ok(Some(reply)) => reply,
             Ok(None) => {
                 error!("Offer creation got no reponse");
+                return Err(Error::SDPError);
             }
             Err(err) => {
                 error!("Offer creation got error reponse: {:?}", err);
+                return Err(Error::SDPError);
             }
         };
+
+        println!("got webrtcbin offer: {:?}", reply);
+
         let offer = reply
             .get_value("offer")
             .expect("Invalid argument")
@@ -139,5 +158,9 @@ impl<S: Signal> Client<S> {
             .unwrap();
 
         Ok(())
+    }
+
+    pub async fn ping(&self) -> Result<(), Error> {
+        self.signal.ping().await
     }
 }
