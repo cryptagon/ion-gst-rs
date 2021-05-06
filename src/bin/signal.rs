@@ -2,6 +2,7 @@ use glib;
 use gst::prelude::*;
 use ion_gst_rs::jsonrpc::JsonRPCSignaler;
 use ion_gst_rs::{Client, SessionDescription, Signal, TrickleCandidate};
+use log::LevelFilter;
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut rpc = JsonRPCSignaler::new();
@@ -22,6 +23,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+    pretty_env_logger::init();
+    log::set_max_level(LevelFilter::Trace);
     gst::init()?;
     // Get the default main context and run our async function on it
     let main_context = glib::MainContext::default();

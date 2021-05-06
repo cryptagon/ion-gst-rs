@@ -24,14 +24,14 @@ impl From<jsonrpsee::ws_client::Error> for Error {
 
 impl std::error::Error for Error {}
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SessionDescription {
     #[serde(rename = "type")]
     pub t: String,
     pub sdp: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct TrickleCandidate {
     pub candidate: String,
     #[serde(rename = "sdpMid")]

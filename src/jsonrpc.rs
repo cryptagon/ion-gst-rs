@@ -1,6 +1,10 @@
 use super::{Error, SessionDescription, Signal, TrickleCandidate};
 use async_trait::async_trait;
-use jsonrpsee::ws_client::{traits::Client, v2::params::JsonRpcParams, WsClient, WsClientBuilder};
+use futures::select;
+use jsonrpsee::ws_client::{
+    traits::Client, traits::SubscriptionClient, v2::params::JsonRpcParams, Subscription, WsClient,
+    WsClientBuilder,
+};
 use maplit::btreemap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::Value;
@@ -40,6 +44,26 @@ impl Signal for JsonRPCSignaler {
             .handshake_url(Cow::Borrowed(&u.path()))
             .build(&url)
             .await?;
+
+        let mut offer: Subscription<SessionDescription> = client.on_notification("offer").await?;
+        let mut trickle: Subscription<SessionDescription> =
+            client.on_notification("trickle").await?;
+
+        glib::MainContext::default().spawn(async move {
+            loop {
+                if let Some(msg) = offer.next().await {
+                    println!("got offer: {:?}", msg);
+                }
+            }
+        });
+
+        glib::MainContext::default().spawn(async move {
+            loop {
+                if let Some(msg) = trickle.next().await {
+                    println!("got trickle: {:?}", msg);
+                }
+            }
+        });
 
         self.ws = Some(client);
 
