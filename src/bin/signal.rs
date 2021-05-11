@@ -5,15 +5,13 @@ use ion_gst_rs::{Client, SessionDescription, Signal, TrickleCandidate};
 use log::LevelFilter;
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let mut rpc = JsonRPCSignaler::new();
+    let rpc = JsonRPCSignaler::new("ws://localhost:7000/session/test");
 
     let pipeline = gst::Pipeline::new(Some("test"));
     let fakesink = gst::ElementFactory::make("fakesink", None)?;
     pipeline.add(&fakesink)?;
 
-    rpc.open("ws://localhost:7000/session/test".to_string())
-        .await?;
-    let client = Client::new(rpc, pipeline);
+    let mut client = Client::new(rpc, pipeline);
     client.join("test".to_string()).await?;
 
     loop {

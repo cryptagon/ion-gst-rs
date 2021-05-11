@@ -1,9 +1,12 @@
+use async_mutex::Mutex;
 use async_trait::async_trait;
-use async_tungstenite::tungstenite;
 use derive_more::Display;
+use futures::channel::mpsc;
+use futures::stream::StreamExt;
 use gst::prelude::*;
 use log::*;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 pub mod jsonrpc;
 
@@ -37,22 +40,23 @@ pub struct TrickleCandidate {
     #[serde(rename = "sdpMid")]
     pub sdp_mid: String,
     #[serde(rename = "sdpMLineIndex")]
-    pub sdp_mline_index: u16,
+    pub sdp_mline_index: u32,
 }
 
+#[derive(Debug)]
 pub enum SignalNotification {
-    OnNegotiate {
+    Negotiate {
         offer: SessionDescription,
     },
-    OnTrickle {
-        target: i32,
+    Trickle {
+        target: u32,
         candidate: TrickleCandidate,
     },
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait Signal {
-    async fn open(&mut self, url: String) -> Result<(), Error>;
+    async fn open(&mut self) -> Result<mpsc::Receiver<SignalNotification>, Error>;
     async fn close(&mut self) -> Result<(), Error>;
     async fn ping(&self) -> Result<(), Error>;
 
@@ -81,8 +85,10 @@ impl<S: Signal> Client<S> {
         publisher.set_property_from_str("stun-server", STUN_SERVER);
         publisher.set_property_from_str("bundle-policy", "max-bundle");
 
-        let subscriber =
-            gst::ElementFactory::make("webrtcbin", None).expect("error creating webrtcbin");
+        let subscriber = gst::ElementFactory::make("webrtcbin", Some("subscriber"))
+            .expect("error creating webrtcbin");
+        subscriber.set_property_from_str("stun-server", STUN_SERVER);
+        subscriber.set_property_from_str("bundle-policy", "max-bundle");
 
         pipeline
             .add_many(&[&publisher, &subscriber])
@@ -97,7 +103,86 @@ impl<S: Signal> Client<S> {
         }
     }
 
-    pub async fn join(&self, sid: String) -> Result<(), Error> {
+    pub async fn join(&mut self, sid: String) -> Result<(), Error> {
+        let mut rx = self.signal.open().await?;
+
+        let pub_clone = self.publisher.clone();
+        let sub_clone = self.subscriber.clone();
+
+        glib::MainContext::default().spawn(async move {
+            use SignalNotification::*;
+            while let Some(notification) = rx.next().await {
+                match notification {
+                    Trickle { target, candidate } => {
+                        let pc: &gst::Element = match target {
+                            0 => &pub_clone,
+                            1 => &sub_clone,
+                            _ => panic!("got unexpected trickle target = {}", target),
+                        };
+
+                        pc.emit(
+                            "add-ice-candidate",
+                            &[&candidate.sdp_mline_index, &candidate.candidate],
+                        )
+                        .expect("could not call add-ice-candidate on pc");
+                    }
+
+                    Negotiate { offer } => {
+                        let pc = &sub_clone;
+
+                        let ret = gst_sdp::SDPMessage::parse_buffer(offer.sdp.as_bytes())
+                            .map_err(|_| Error::SDPError)
+                            .expect("error parsing inbound offer");
+                        let offer = gst_webrtc::WebRTCSessionDescription::new(
+                            gst_webrtc::WebRTCSDPType::Offer,
+                            ret,
+                        );
+
+                        pc.emit("set-remote-description", &[&offer, &None::<gst::Promise>])
+                            .expect("sub failed setting remote description");
+
+                        let (promise, fut) = gst::Promise::new_future();
+
+                        pc.emit("create-answer", &[&None::<gst::Structure>, &promise])
+                            .expect("sub failed to emit create-answer signal on");
+
+                        let reply = fut.await;
+
+                        // Check if we got a valid offer
+                        let reply = match reply {
+                            Ok(Some(reply)) => reply,
+                            Ok(None) => {
+                                error!("sub answer creation got no reponse");
+                                continue;
+                            }
+                            Err(err) => {
+                                error!("sub answer creation got error reponse: {:?}", err);
+                                continue;
+                            }
+                        };
+
+                        let answer = reply
+                            .get_value("answer")
+                            .expect("Invalid argument")
+                            .get::<gst_webrtc::WebRTCSessionDescription>()
+                            .expect("Invalid argument")
+                            .unwrap();
+
+                        pc.emit("set-local-description", &[&answer, &None::<gst::Promise>])
+                            .expect("sub answer error set-local-description");
+
+                        let answer = SessionDescription {
+                            t: "answer".to_string(),
+                            sdp: answer.get_sdp().as_text().unwrap(),
+                        };
+
+                        // signal lock exists for this scope
+                        //self.signal.answer(answer).await;
+                    }
+                }
+            }
+        });
+
         self.publisher
             .emit(
                 "create-data-channel",
@@ -125,8 +210,6 @@ impl<S: Signal> Client<S> {
             }
         };
 
-        println!("got webrtcbin offer: {:?}", reply);
-
         let offer = reply
             .get_value("offer")
             .expect("Invalid argument")
@@ -134,7 +217,7 @@ impl<S: Signal> Client<S> {
             .expect("Invalid argument")
             .unwrap();
 
-        trace!("Created offer {:#?}", offer.get_sdp());
+        trace!("Created pub offer {:#?}", offer.get_sdp());
 
         self.publisher
             .emit("set-local-description", &[&offer, &None::<gst::Promise>])
@@ -147,6 +230,8 @@ impl<S: Signal> Client<S> {
 
         // send join offer to server and await answer
         let answer = self.signal.join(sid, offer).await?;
+
+        trace!("Received pub answer");
 
         let ret = gst_sdp::SDPMessage::parse_buffer(answer.sdp.as_bytes())
             .map_err(|_| Error::SDPError)?;

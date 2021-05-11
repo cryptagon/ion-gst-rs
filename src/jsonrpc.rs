@@ -1,10 +1,11 @@
-use super::{Error, SessionDescription, Signal, TrickleCandidate};
+use super::{Error, SessionDescription, Signal, SignalNotification, TrickleCandidate};
 use async_trait::async_trait;
-use futures::select;
+use futures::{channel::mpsc, future, future::Either, pin_mut};
 use jsonrpsee::ws_client::{
-    traits::Client, traits::SubscriptionClient, v2::params::JsonRpcParams, Subscription, WsClient,
-    WsClientBuilder,
+    traits::Client, traits::SubscriptionClient, v2::params::JsonRpcParams, NotificationHandler,
+    WsClient, WsClientBuilder,
 };
+use log::*;
 use maplit::btreemap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::Value;
@@ -12,62 +13,85 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use url::Url;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct JoinMsg {
     pub sid: String,
     pub offer: SessionDescription,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct JoinResponse {
     pub answer: SessionDescription,
 }
 
-pub struct JsonRPCSignaler {
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NegotiateMsg {
+    pub desc: SessionDescription,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TrickleNotification {
+    pub target: u32,
+    pub candidate: TrickleCandidate,
+}
+
+pub struct JsonRPCSignaler<'a> {
+    url: &'a str,
     ws: Option<WsClient>,
 }
 
-impl JsonRPCSignaler {
-    pub fn new() -> JsonRPCSignaler {
+impl<'a> JsonRPCSignaler<'a> {
+    pub fn new(url: &'a str) -> JsonRPCSignaler {
         JsonRPCSignaler {
+            url: url,
             ws: Option::<WsClient>::None,
         }
     }
 }
 
-#[async_trait(?Send)]
-impl Signal for JsonRPCSignaler {
-    async fn open(&mut self, url: String) -> Result<(), Error> {
-        let u = Url::parse(&url).unwrap();
+#[async_trait]
+impl<'a> Signal for JsonRPCSignaler<'a> {
+    async fn open(&mut self) -> Result<mpsc::Receiver<SignalNotification>, Error> {
+        let u = Url::parse(&self.url).unwrap();
 
         let client = WsClientBuilder::default()
             .handshake_url(Cow::Borrowed(&u.path()))
-            .build(&url)
+            .build(&self.url)
             .await?;
 
-        let mut offer: Subscription<SessionDescription> = client.on_notification("offer").await?;
-        let mut trickle: Subscription<SessionDescription> =
-            client.on_notification("trickle").await?;
+        let mut offer: NotificationHandler<SessionDescription> =
+            client.register_notification("offer").await?;
+        let mut trickle: NotificationHandler<TrickleNotification> =
+            client.register_notification("trickle").await?;
+
+        let (mut tx, rx) = mpsc::channel(16);
+        let mut tx_clone = tx.clone();
 
         glib::MainContext::default().spawn(async move {
             loop {
                 if let Some(msg) = offer.next().await {
-                    println!("got offer: {:?}", msg);
+                    trace!("got offer: {:?}", msg);
+                    tx_clone
+                        .try_send(SignalNotification::Negotiate { offer: msg })
+                        .expect("could not send offer notification to channel");
                 }
             }
         });
-
         glib::MainContext::default().spawn(async move {
             loop {
                 if let Some(msg) = trickle.next().await {
                     println!("got trickle: {:?}", msg);
+                    tx.try_send(SignalNotification::Trickle {
+                        target: msg.target,
+                        candidate: msg.candidate,
+                    })
+                    .expect("could not send trickle notification to channel");
                 }
             }
         });
-
         self.ws = Some(client);
 
-        Ok(())
+        Ok(rx)
     }
 
     async fn close(&mut self) -> Result<(), Error> {

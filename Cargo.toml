@@ -27,6 +27,7 @@ log = "0.4.14"
 jsonrpsee =  { git = "https://github.com/billylindeman/jsonrpsee", features = ["full"] }
 #jsonrpsee =  { path = "../jsonrpsee/jsonrpsee", features = ["full"] }
 pretty_env_logger = "0.4.0"
+async-mutex = "1.4.0"
 
 [[bin]]
 name = "signal"
