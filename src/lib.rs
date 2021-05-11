@@ -71,14 +71,14 @@ pub trait Signal {
     async fn trickle(&self, target: u32, candidate: TrickleCandidate) -> Result<(), Error>;
 }
 
-pub struct Client<S: Signal> {
-    signal: S,
+pub struct Client<S: Signal + Send + Sync + 'static> {
+    signal: Arc<Mutex<S>>,
 
     publisher: gst::Element,
     subscriber: gst::Element,
 }
 
-impl<S: Signal> Client<S> {
+impl<S: Signal + Send + Sync> Client<S> {
     pub fn new(signal: S, pipeline: gst::Pipeline) -> Client<S> {
         let publisher = gst::ElementFactory::make("webrtcbin", Some("publisher"))
             .expect("error creating webrtcbin");
@@ -97,17 +97,18 @@ impl<S: Signal> Client<S> {
         pipeline.set_state(gst::State::Playing).unwrap();
 
         Client {
-            signal: signal,
+            signal: Arc::new(Mutex::new(signal)),
             publisher: publisher,
             subscriber: subscriber,
         }
     }
 
     pub async fn join(&mut self, sid: String) -> Result<(), Error> {
-        let mut rx = self.signal.open().await?;
+        let mut rx = { self.signal.lock().await.open().await? };
 
         let pub_clone = self.publisher.clone();
         let sub_clone = self.subscriber.clone();
+        let signal = self.signal.clone();
 
         glib::MainContext::default().spawn(async move {
             use SignalNotification::*;
@@ -177,7 +178,12 @@ impl<S: Signal> Client<S> {
                         };
 
                         // signal lock exists for this scope
-                        //self.signal.answer(answer).await;
+                        signal
+                            .lock()
+                            .await
+                            .answer(answer)
+                            .await
+                            .expect("sub error sending answer over signal");
                     }
                 }
             }
@@ -217,7 +223,7 @@ impl<S: Signal> Client<S> {
             .expect("Invalid argument")
             .unwrap();
 
-        trace!("Created pub offer {:#?}", offer.get_sdp());
+        debug!("Created pub offer {:#?}", offer.get_sdp());
 
         self.publisher
             .emit("set-local-description", &[&offer, &None::<gst::Promise>])
@@ -229,7 +235,7 @@ impl<S: Signal> Client<S> {
         };
 
         // send join offer to server and await answer
-        let answer = self.signal.join(sid, offer).await?;
+        let answer = self.signal.lock().await.join(sid, offer).await?;
 
         trace!("Received pub answer");
 
@@ -246,6 +252,6 @@ impl<S: Signal> Client<S> {
     }
 
     pub async fn ping(&self) -> Result<(), Error> {
-        self.signal.ping().await
+        self.signal.lock().await.ping().await
     }
 }
