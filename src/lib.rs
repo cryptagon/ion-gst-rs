@@ -8,7 +8,6 @@ use log::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use std::cell::Cell;
 pub mod jsonrpc;
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
@@ -39,7 +38,7 @@ pub struct SessionDescription {
 pub struct TrickleCandidate {
     pub candidate: String,
     #[serde(rename = "sdpMid")]
-    pub sdp_mid: String,
+    pub sdp_mid: Option<String>,
     #[serde(rename = "sdpMLineIndex")]
     pub sdp_mline_index: u32,
 }
@@ -53,6 +52,11 @@ pub enum SignalNotification {
         target: u32,
         candidate: TrickleCandidate,
     },
+}
+
+enum WebrtcBinEvent {
+    NegotiationNeeded,
+    IceCandidate(TrickleCandidate),
 }
 
 #[async_trait]
@@ -122,6 +126,7 @@ impl<S: Signal + Send + Sync> Client<S> {
                             1 => &sub_clone,
                             _ => panic!("got unexpected trickle target = {}", target),
                         };
+                        debug!("adding ice candidate");
 
                         pc.emit(
                             "add-ice-candidate",
@@ -251,22 +256,54 @@ impl<S: Signal + Send + Sync> Client<S> {
             .unwrap();
 
         let (tx, mut rx) = mpsc::unbounded();
+        let tx_clone = tx.clone();
         let signal = self.signal.clone();
         let pub_clone = self.publisher.clone();
 
         self.publisher
             .connect("on-negotiation-needed", false, move |_| {
                 info!("pub negotiation needed");
-                tx.unbounded_send(true).unwrap();
+                tx.unbounded_send(WebrtcBinEvent::NegotiationNeeded)
+                    .unwrap();
+                None
+            })
+            .unwrap();
+
+        self.publisher
+            .connect("on-ice-candidate", false, move |values| {
+                let _webrtc = values[0].get::<gst::Element>().expect("Invalid argument");
+                let mlineindex = values[1].get_some::<u32>().expect("Invalid argument");
+                let candidate = values[2]
+                    .get::<String>()
+                    .expect("Invalid argument")
+                    .unwrap();
+
+                tx_clone
+                    .unbounded_send(WebrtcBinEvent::IceCandidate(TrickleCandidate {
+                        sdp_mline_index: mlineindex,
+                        sdp_mid: None,
+                        candidate: candidate,
+                    }))
+                    .unwrap();
+
                 None
             })
             .unwrap();
 
         glib::MainContext::default().spawn(async move {
-            while let Some(_) = rx.next().await {
-                Client::on_pub_negotiation_needed(&signal, &pub_clone)
-                    .await
-                    .unwrap()
+            while let Some(evt) = rx.next().await {
+                match evt {
+                    WebrtcBinEvent::NegotiationNeeded => {
+                        Client::on_pub_negotiation_needed(&signal, &pub_clone)
+                            .await
+                            .unwrap()
+                    }
+                    WebrtcBinEvent::IceCandidate(candidate) => {
+                        //send pub ice candidate to server
+                        debug!("publisher sending ice candidate");
+                        signal.lock().await.trickle(0, candidate).await.unwrap()
+                    }
+                }
             }
 
             panic!("done");

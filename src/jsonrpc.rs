@@ -160,7 +160,7 @@ impl<'a> Signal for JsonRPCSignaler<'a> {
                 "candidate" => serde_json::to_value(candidate).unwrap(),
             };
 
-            ws.notification("answer", JsonRpcParams::Map(msg)).await?;
+            ws.notification("trickle", JsonRpcParams::Map(msg)).await?;
             return Ok(());
         }
 
