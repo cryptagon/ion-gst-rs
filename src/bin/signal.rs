@@ -17,7 +17,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         vtenc_h264 realtime=true allow-frame-reordering=false max-keyframe-interval=60 ! 
         video/x-h264, profile=baseline ! 
         h264parse config-interval=1 ! 
-        rtph264pay pt=96 ! application/x-rtp,clock-rate=90000 ! queue",
+        rtph264pay ! application/x-rtp,clock-rate=90000 ! queue",
         true,
     )?;
 
@@ -30,6 +30,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     src_bin.link(&client.publisher)?;
 
     client.join("test".to_string()).await?;
+
+    pipeline.set_state(gst::State::Playing)?;
 
     loop {
         client.ping().await?;
