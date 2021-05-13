@@ -8,6 +8,7 @@ use log::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use std::cell::Cell;
 pub mod jsonrpc;
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
@@ -74,8 +75,8 @@ pub trait Signal {
 pub struct Client<S: Signal + Send + Sync + 'static> {
     signal: Arc<Mutex<S>>,
 
-    publisher: gst::Element,
-    subscriber: gst::Element,
+    pub publisher: gst::Element,
+    pub subscriber: gst::Element,
 }
 
 impl<S: Signal + Send + Sync> Client<S> {
@@ -94,7 +95,8 @@ impl<S: Signal + Send + Sync> Client<S> {
             .add_many(&[&publisher, &subscriber])
             .expect("error adding transports to pipeline");
 
-        pipeline.set_state(gst::State::Playing).unwrap();
+        publisher.sync_state_with_parent().unwrap();
+        subscriber.sync_state_with_parent().unwrap();
 
         Client {
             signal: Arc::new(Mutex::new(signal)),
@@ -189,13 +191,13 @@ impl<S: Signal + Send + Sync> Client<S> {
             }
         });
 
-        self.publisher
-            .emit(
-                "create-data-channel",
-                &[&"ion-sfu", &None::<gst::Structure>],
-            )
-            .unwrap();
-
+        //        self.publisher
+        //            .emit(
+        //                "create-data-channel",
+        //                &[&"ion-sfu", &None::<gst::Structure>],
+        //            )
+        //            .unwrap();
+        //
         let (promise, fut) = gst::Promise::new_future();
         self.publisher
             .emit("create-offer", &[&None::<gst::Structure>, &promise])
@@ -248,6 +250,89 @@ impl<S: Signal + Send + Sync> Client<S> {
             .emit("set-remote-description", &[&answer, &None::<gst::Promise>])
             .unwrap();
 
+        let (tx, mut rx) = mpsc::unbounded();
+        let signal = self.signal.clone();
+        let pub_clone = self.publisher.clone();
+
+        self.publisher
+            .connect("on-negotiation-needed", false, move |_| {
+                info!("pub negotiation needed");
+                tx.unbounded_send(true).unwrap();
+                None
+            })
+            .unwrap();
+
+        glib::MainContext::default().spawn(async move {
+            while let Some(_) = rx.next().await {
+                Client::on_pub_negotiation_needed(&signal, &pub_clone)
+                    .await
+                    .unwrap()
+            }
+
+            panic!("done");
+        });
+
+        Ok(())
+    }
+
+    async fn on_pub_negotiation_needed(
+        signal: &Arc<Mutex<S>>,
+        publisher: &gst::Element,
+    ) -> Result<(), Error> {
+        info!("pub negotiations, creating offer");
+        let (promise, fut) = gst::Promise::new_future();
+        publisher
+            .emit("create-offer", &[&None::<gst::Structure>, &promise])
+            .expect("Failed to emit create-offer signal");
+
+        let reply = fut.await;
+
+        // Check if we got a valid offer
+        let reply = match reply {
+            Ok(Some(reply)) => reply,
+            Ok(None) => {
+                error!("Offer creation got no reponse");
+                return Err(Error::SDPError);
+            }
+            Err(err) => {
+                error!("Offer creation got error reponse: {:?}", err);
+                return Err(Error::SDPError);
+            }
+        };
+
+        let offer = reply
+            .get_value("offer")
+            .expect("Invalid argument")
+            .get::<gst_webrtc::WebRTCSessionDescription>()
+            .expect("Invalid argument")
+            .unwrap();
+
+        debug!("Created pub offer {:#?}", offer.get_sdp());
+
+        publisher
+            .emit("set-local-description", &[&offer, &None::<gst::Promise>])
+            .expect("Failed to emit set-local-description signal");
+
+        let offer = SessionDescription {
+            t: "offer".to_string(),
+            sdp: offer.get_sdp().as_text().unwrap(),
+        };
+
+        // send join offer to server and await answer
+        let answer = signal.lock().await.offer(offer).await?;
+
+        trace!("Received pub answer");
+
+        let ret = gst_sdp::SDPMessage::parse_buffer(answer.sdp.as_bytes())
+            .map_err(|_| Error::SDPError)?;
+        let answer =
+            gst_webrtc::WebRTCSessionDescription::new(gst_webrtc::WebRTCSDPType::Answer, ret);
+
+        publisher
+            .emit("set-remote-description", &[&answer, &None::<gst::Promise>])
+            .unwrap();
+
+        info!("pub negotiation completed");
         Ok(())
     }
 

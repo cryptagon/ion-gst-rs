@@ -11,7 +11,24 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let fakesink = gst::ElementFactory::make("fakesink", None)?;
     pipeline.add(&fakesink)?;
 
-    let mut client = Client::new(rpc, pipeline);
+    let src_bin = gst::parse_bin_from_description(
+        "videotestsrc is-live=true ! 
+        queue ! 
+        vtenc_h264 realtime=true allow-frame-reordering=false max-keyframe-interval=60 ! 
+        video/x-h264, profile=baseline ! 
+        h264parse config-interval=1 ! 
+        rtph264pay pt=96 ! application/x-rtp,clock-rate=90000 ! queue",
+        true,
+    )?;
+
+    pipeline.add(&src_bin)?;
+    pipeline.set_state(gst::State::Ready)?;
+
+    let mut client = Client::new(rpc, pipeline.clone());
+
+    src_bin.sync_state_with_parent()?;
+    src_bin.link(&client.publisher)?;
+
     client.join("test".to_string()).await?;
 
     loop {
