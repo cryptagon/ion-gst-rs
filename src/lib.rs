@@ -84,23 +84,30 @@ pub struct Client<S: Signal + Send + Sync + 'static> {
 }
 
 impl<S: Signal + Send + Sync> Client<S> {
-    pub fn new(signal: S, pipeline: gst::Pipeline) -> Client<S> {
-        let publisher = gst::ElementFactory::make("webrtcbin", Some("publisher"))
-            .expect("error creating webrtcbin");
+    pub fn new<'a>(
+        signal: S,
+        pipeline: gst::Pipeline,
+        publisher: &'a str,
+        subscriber: &'a str,
+    ) -> Client<S> {
+        let publisher = pipeline.get_by_name(publisher).unwrap();
+        let subscriber = pipeline.get_by_name(subscriber).unwrap();
+        //let publisher = gst::ElementFactory::make("webrtcbin", Some("publisher"))
+        //    .expect("error creating webrtcbin");
         publisher.set_property_from_str("stun-server", STUN_SERVER);
         publisher.set_property_from_str("bundle-policy", "max-bundle");
 
-        let subscriber = gst::ElementFactory::make("webrtcbin", Some("subscriber"))
-            .expect("error creating webrtcbin");
+        //let subscriber = gst::ElementFactory::make("webrtcbin", Some("subscriber"))
+        //    .expect("error creating webrtcbin");
         subscriber.set_property_from_str("stun-server", STUN_SERVER);
         subscriber.set_property_from_str("bundle-policy", "max-bundle");
 
-        pipeline
-            .add_many(&[&publisher, &subscriber])
-            .expect("error adding transports to pipeline");
+        //pipeline
+        //    .add_many(&[&publisher, &subscriber])
+        //    .expect("error adding transports to pipeline");
 
-        publisher.sync_state_with_parent().unwrap();
-        subscriber.sync_state_with_parent().unwrap();
+        //publisher.sync_state_with_parent().unwrap();
+        //subscriber.sync_state_with_parent().unwrap();
 
         Client {
             signal: Arc::new(Mutex::new(signal)),
@@ -358,7 +365,7 @@ impl<S: Signal + Send + Sync> Client<S> {
         // send join offer to server and await answer
         let answer = signal.lock().await.offer(offer).await?;
 
-        trace!("Received pub answer");
+        debug!("Received pub answer");
 
         let ret = gst_sdp::SDPMessage::parse_buffer(answer.sdp.as_bytes())
             .map_err(|_| Error::SDPError)?;
