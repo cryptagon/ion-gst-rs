@@ -28,6 +28,8 @@ jsonrpsee =  { git = "https://github.com/billylindeman/jsonrpsee", features = ["
 #jsonrpsee =  { path = "../jsonrpsee/jsonrpsee", features = ["full"] }
 pretty_env_logger = "0.4.0"
 async-mutex = "1.4.0"
+enclose = "1.1.8"
+anyhow = "1.0.40"
 
 [[bin]]
 name = "signal"

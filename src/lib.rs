@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub mod jsonrpc;
+pub mod macos;
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
 
@@ -377,10 +378,20 @@ impl<S: Signal + Send + Sync> Client<S> {
             .unwrap();
 
         info!("pub negotiation completed");
+
         Ok(())
     }
 
     pub async fn ping(&self) -> Result<(), Error> {
         self.signal.lock().await.ping().await
     }
+}
+
+macro_rules! enclose {
+    ( ($( $x:ident ),*) $y:expr ) => {
+        {
+            $(let $x = $x.clone();)*
+            $y
+        }
+    };
 }
