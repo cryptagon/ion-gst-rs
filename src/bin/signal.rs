@@ -2,7 +2,7 @@ use glib;
 use gst::prelude::*;
 use ion_gst_rs::jsonrpc::JsonRPCSignaler;
 use ion_gst_rs::{Client, SessionDescription, Signal, TrickleCandidate};
-use log::LevelFilter;
+use log::*;
 
 use enclose::enc;
 
@@ -19,7 +19,7 @@ async fn run() -> Result<(), anyhow::Error> {
         videotestsrc is-live=true ! 
         video/x-raw,width=640,height=480 !
         queue ! 
-        vtenc_h264 realtime=true allow-frame-reordering=false max-keyframe-interval=60 !
+        x264enc speed-preset=ultrafast !
         queue !
         video/x-h264,profile=baseline ! 
         h264parse config-interval=-1 ! 
@@ -34,6 +34,7 @@ async fn run() -> Result<(), anyhow::Error> {
     client
         .subscriber
         .connect_pad_added(enc!( (pipeline) move |_webrtc, subscriber_pad| {
+            debug!("pad added!");
             let decodebin =
                 gst::ElementFactory::make("decodebin", None).expect("could not make decodebin");
 
