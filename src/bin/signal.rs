@@ -11,20 +11,21 @@ async fn run() -> Result<(), anyhow::Error> {
     log::set_max_level(LevelFilter::Trace);
     gst::init()?;
 
-    let rpc = JsonRPCSignaler::new("ws://localhost:7000/session/test");
+    let rpc = JsonRPCSignaler::new("ws://127.0.0.1:7000/session/test");
     let pipeline = gst::parse_launch(
         "
         webrtcbin name=subscriber 
         webrtcbin name=publisher
         videotestsrc is-live=true ! 
-        video/x-raw,width=640,height=480 !
+        video/x-raw,width=640,height=480 ! tee name=vtee
+        vtee. ! fakesink
+        vtee. !
         queue ! 
         x264enc speed-preset=ultrafast !
         queue !
         video/x-h264,profile=baseline ! 
         h264parse config-interval=-1 ! 
-        rtph264pay ! application/x-rtp,clock-rate=90000,media=video,encoding=H264 ! publisher. 
-        ",
+        rtph264pay ! application/x-rtp,clock-rate=90000,media=video,encoding=H264 ! progressreport !  queue ! publisher.  ",
     )?
     .downcast::<gst::Pipeline>()
     .unwrap();
@@ -71,11 +72,9 @@ async fn run() -> Result<(), anyhow::Error> {
         }));
 
     pipeline.set_state(gst::State::Playing)?;
-
     //@todo maybe use the gst_bus to trigger the client.join instead of this sleep hack
     // we need to wait for the ssrc caps event to arrive at webrtcbin before calling create-offer
     std::thread::sleep_ms(2000);
-
     client.join("test".to_string()).await?;
 
     loop {

@@ -279,12 +279,14 @@ impl<S: Signal + Send + Sync> Client<S> {
 
         self.publisher
             .connect("on-ice-candidate", false, move |values| {
-                let _webrtc = values[0].get::<gst::Element>().expect("Invalid argument");
+                let pc = values[0].get::<gst::Element>().expect("Invalid argument").unwrap();
                 let mlineindex = values[1].get_some::<u32>().expect("Invalid argument");
                 let candidate = values[2]
                     .get::<String>()
                     .expect("Invalid argument")
                     .unwrap();
+
+                pc.emit("add-ice-candidate", &[&mlineindex, &candidate]).unwrap();
 
                 tx_clone
                     .unbounded_send(WebrtcBinEvent::IceCandidate(TrickleCandidate {
@@ -293,6 +295,7 @@ impl<S: Signal + Send + Sync> Client<S> {
                         candidate: candidate,
                     }))
                     .unwrap();
+            
 
                 None
             })
